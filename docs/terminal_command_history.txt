@@ -1,0 +1,103 @@
+Terminal command history (chronological, approximate)
+Date range: session actions leading up to Nov 11, 2025
+
+# Environment setup
+conda create -n causica_py310 python=3.10 -y
+conda run -n causica_py310 python -m venv .venv310
+source .venv310/bin/activate
+.venv310/bin/python -m pip install --upgrade pip setuptools wheel
+.venv310/bin/python -m pip install -e .
+
+# Inspect CLI and help
+.venv310/bin/python -m causica.lightning.main --help
+
+# Generate small debug dataset (example earlier in session)
+.venv310/bin/python -m causica.data_generation.generate_data \
+  --num-samples-train 8 --num-samples-test 2 --num-variables 5 --num-edges 4 \
+  --datadir ./tmp_causica --overwrite --plot-kind ''
+
+# Smoke test (fast_dev_run)
+.venv310/bin/python -m causica.lightning.main \
+  --config src/causica/config/lightning/default_gaussian.yaml \
+  --data src/causica/config/lightning/default_data.yaml \
+  --data.init_args.dataset_path . \
+  --data.init_args.dataset_name tmp_causica \
+  --trainer.fast_dev_run True
+
+# 1-epoch CPU training (adjust batch_size to avoid zero training batches)
+.venv310/bin/python -m causica.lightning.main \
+  --config src/causica/config/lightning/default_gaussian.yaml \
+  --data src/causica/config/lightning/default_data.yaml \
+  --data.init_args.dataset_path . \
+  --data.init_args.dataset_name tmp_causica \
+  --data.init_args.batch_size 8 \
+  --trainer.max_epochs 1 --trainer.accelerator cpu
+
+# Generate larger dataset used for MPS run
+.venv310/bin/python -m causica.data_generation.generate_data \
+  --num-samples-train 1024 --num-samples-test 128 --num-variables 12 --num-edges 20 \
+  --datadir ./tmp_causica --overwrite --plot-kind ''
+
+# First MPS run (failed due to an incompatible checkpoint in outputs)
+.venv310/bin/python -m causica.lightning.main \
+  --config src/causica/config/lightning/default_gaussian.yaml \
+  --data src/causica/config/lightning/default_data.yaml \
+  --data.init_args.dataset_path . \
+  --data.init_args.dataset_name tmp_causica \
+  --trainer.max_epochs 1 --trainer.accelerator mps --trainer.devices 1
+
+# Backup / move old outputs to avoid checkpoint restore conflict
+mv outputs outputs.bak && mkdir outputs
+
+# Second MPS attempt (hit a NotImplementedError: aten::triu_indices not on MPS)
+.venv310/bin/python -m causica.lightning.main \
+  --config src/causica/config/lightning/default_gaussian.yaml \
+  --data src/causica/config/lightning/default_data.yaml \
+  --data.init_args.dataset_path . \
+  --data.init_args.dataset_name tmp_causica \
+  --trainer.max_epochs 1 --trainer.accelerator mps --trainer.devices 1
+
+# Run with MPS fallback enabled so unsupported ops run on CPU (successful)
+PYTORCH_ENABLE_MPS_FALLBACK=1 .venv310/bin/python -m causica.lightning.main \
+  --config src/causica/config/lightning/default_gaussian.yaml \
+  --data src/causica/config/lightning/default_data.yaml \
+  --data.init_args.dataset_path . \
+  --data.init_args.dataset_name tmp_causica \
+  --trainer.max_epochs 1 --trainer.accelerator mps --trainer.devices 1
+
+# Commands used for inspecting dataset and variables
+jq . tmp_causica/variables.json
+head -n 5 tmp_causica/train.csv
+
+# Command used to extract learned adjacency (suggested / example script)
+# (This is the extraction snippet placed in the docs; run from repo root)
+.venv310/bin/python - <<'PY'
+from causica.lightning.modules.deci_module import DECIModule
+import glob, json, pandas as pd
+ckpts = glob.glob('outputs/**/*.ckpt', recursive=True) + glob.glob('outputs/*.ckpt')
+ckpt = ckpts[0]
+module = DECIModule.load_from_checkpoint(ckpt, map_location='cpu')
+adj_module = module.sem_module.adjacency_module
+prob_adj = adj_module().mean.detach().cpu().numpy()
+mode_adj = adj_module().mode.detach().cpu().numpy().astype(int)
+vars_meta = json.load(open('tmp_causica/variables.json'))
+names = [v.get('name', f'v{i}') for i,v in enumerate(vars_meta)]
+import pandas as pd
+pd.DataFrame(prob_adj, index=names, columns=names).to_csv('outputs/learned_adjacency_probs.csv')
+pd.DataFrame(mode_adj, index=names, columns=names).to_csv('outputs/learned_adjacency_mode.csv')
+print('Saved outputs/learned_adjacency_probs.csv and outputs/learned_adjacency_mode.csv')
+PY
+
+# Dataset standardization helper (suggested)
+python scripts/standardize_dataset.py
+
+# Commands used to compare learned adjacency vs ground truth (example)
+.venv310/bin/python - <<'PY'
+import pandas as pd, torch
+from causica.graph.evaluation_metrics import adjacency_f1, orientation_f1
+truth = pd.read_csv('tmp_causica/adj_matrix.csv', index_col=0).values
+pred = pd.read_csv('outputs/learned_adjacency_mode.csv', index_col=0).values
+print('adjacency_f1', adjacency_f1(torch.tensor(truth), torch.tensor(pred)).item())
+print('orientation_f1', orientation_f1(torch.tensor(truth), torch.tensor(pred)).item())
+PY
+

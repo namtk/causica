@@ -1,3 +1,30 @@
+[//]: # (This repository was cloned and modified locally. See the "Changes in this clone" section below for a summary of local additions and how to push them to your GitHub fork.)
+
+## Changes in this clone (local additions)
+
+This copy of the repository was edited locally to add small helper scripts and documentation to make it easier to run the example notebook from the command line, build graph constraints, and extract learned adjacency matrices from saved models.
+
+New files added in this clone
+- `docs/run_and_results_report.md` — a short run report capturing the dataset used, CLI commands, trainer settings, and where outputs/checkpoints were written for the example run performed locally.
+- `docs/learned_adjacency_report.md` — explanation of how adjacency is represented in the repo, where to find the ENCO adjacency implementation, and sample code snippets for extracting learned graphs.
+- `docs/hyperparameter_tuning_guide.md` — practical tuning guidance (data preprocessing, LR, batch size, auglag settings) and CLI examples for quick sweeps.
+- `docs/terminal_command_history.txt` — a lightweight record of the terminal commands used during the local experiment session for reproducibility.
+- `docs/multi_investment_sales_attribution_cli.md` — a concise markdown report that translates `examples/multi_investment_sales_attribution.ipynb` into a reproducible `causica.lightning.main` CLI command and checklist.
+- `scripts/build_constraints.py` — helper script that reads `variables.json` (or `train.csv` header) and writes `constraints.npy` implementing the notebook's example constraints (Revenue row constraints, non-child attribute columns, engagement-node block constraints).
+- `scripts/extract_sem_and_save_adj.py` — helper script that loads a saved SEM module or Lightning checkpoint (e.g., `outputs/last.ckpt`), extracts the learned adjacency (mode) and optionally mean, and writes CSV artifacts to `outputs/`.
+
+Local artifacts produced by running the helper scripts
+- `./tmp_causica/constraints.npy` — constraints file created by `scripts/build_constraints.py` (if you ran the generator script against `tmp_causica`).
+- `./outputs/learned_adjacency_mode.csv` — adjacency CSV produced by `scripts/extract_sem_and_save_adj.py` when extracting from a local checkpoint.
+- `./outputs/deci_sem_module.pt` — saved SEM module object produced by the extractor for later programmatic use.
+
+Notes about these changes
+- The added scripts and docs are utilities to reproduce the notebook workflow via CLI and to make it easy to re-run experiments and extract adjacency CSVs for downstream analysis. They are intentionally small, dependency-light, and conservative about overwriting existing files.
+- No core library code or model algorithms were modified. These changes are purely utilities and documentation to simplify local experimentation.
+
+---
+
+
 [![Causica CI Build](https://github.com/microsoft/causica/actions/workflows/ci-build.yml/badge.svg)](https://github.com/microsoft/causica/actions/workflows/ci-build.yml)
 [![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/microsoft/causica)
 
